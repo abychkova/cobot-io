@@ -26,7 +26,7 @@ genBankP :: Parser GenBankSequence
 genBankP =  GenBankSequence
         <$> (metaP <?> "Meta parser")
         <*> (gbSeqP <?> "GB sequence parser")
-        <*  string "//" <* eolSpaceP 
+        <*  string "//" <* eolSpaceP
 
 --------------------------------------------------------------------------------
 -- Block with meta-information.
@@ -37,7 +37,7 @@ metaP = do
   locus'      <- locusP <?> "Locus parser"
 
   definitionM <- optional definitionP <?> "Definition parser"
-  accessionM  <- optional accessionP <?> "Accession parser"
+  accessionM  <- join <$> optional accessionP <?> "Accession parser"
   versionM    <- optional versionP <?> "Version parser"
   keywordsM   <- optional keywordsP <?> "Keywords parser"
   sourceM     <- optional sourceP <?> "Source parser"
@@ -64,10 +64,12 @@ locusP = string "LOCUS" *> space *> (Locus
 definitionP :: Parser Text
 definitionP =  string "DEFINITION" *> space *> (try emptyP <|> someLinesP)
 
-accessionP :: Parser Text
-accessionP =  string "ACCESSION" *> space *> (try emptyP <|> (pack
-          <$> some (try alphaNumChar <|> char '_')
-          <*  eolSpaceP))
+accessionP :: Parser (Maybe Text)
+accessionP = string "ACCESSION" *> space *> (try (Just <$> valueP) <|> (Nothing <$ skipLineP))
+  where
+    valueP = try emptyP
+          <|> (pack <$> some (try alphaNumChar <|> char '_' <|> char '<' <|> char '>') <* eolSpaceP)
+    skipLineP = void (manyTill anySingle eol)
 
 versionP :: Parser Version
 versionP =  string "VERSION" *> space
@@ -108,7 +110,7 @@ commentP = string "COMMENT" *> (try emptyP <|> (many (char ' ') *> someLinesP))
 --------------------------------------------------------------------------------
 
 featuresP :: Parser [(Feature, Range)]
-featuresP = -- skip unknown fields and stop on line with "FEATURES" 
+featuresP = -- skip unknown fields and stop on line with "FEATURES"
           manyTill (textWithSpacesP <* eolSpaceP) (string "FEATURES") *> space
           *> textWithSpacesP <* eolSpaceP
           *> some (featureP <?> "Single feature parser")
@@ -128,8 +130,8 @@ featureP = do
     pure (Feature featureName' props, shiftRange (-1) range)
 
 rangeP :: Parser Range
-rangeP =  try spanP 
-      <|> try betweenP 
+rangeP =  try spanP
+      <|> try betweenP
       <|> try pointP
       <|> try joinP
       <|> complementP
@@ -141,8 +143,8 @@ rangeP =  try spanP
         _ <- string ".."
         upperBorderType <- option Precise (try $ char '>' *> pure Exceeded)
         upperBorderLocation <- decimal
-        pure $ Span (RangeBorder lowerBorderType lowerBorderLocation) (RangeBorder upperBorderType upperBorderLocation) 
-                
+        pure $ Span (RangeBorder lowerBorderType lowerBorderLocation) (RangeBorder upperBorderType upperBorderLocation)
+
     betweenP :: Parser Range
     betweenP = do
         before <- decimal
@@ -152,13 +154,13 @@ rangeP =  try spanP
 
     pointP :: Parser Range
     pointP = fmap Point decimal
-   
+
     joinP :: Parser Range
     joinP = string "join(" *> fmap Join (rangeP `sepBy1` char ',') <* char ')'
 
     complementP :: Parser Range
     complementP = fmap Complement $ string "complement(" *> rangeP <* char ')'
-        
+
 
 propsP :: Parser (Text, Text)
 propsP = do
@@ -178,17 +180,17 @@ propsP = do
     indLine = do
         _ <- string featureIndent2
         notFollowedBy (char '/')
-        text <- textWithSpacesP 
+        text <- textWithSpacesP
         eolSpaceP
         pure text
 
     multiLineProp :: Parser Text
     multiLineProp = do
-        fstText <- textWithSpacesP <* eolSpaceP 
+        fstText <- textWithSpacesP <* eolSpaceP
         rest <- many (try indLine)
-        pure $ T.concat (fstText : rest) 
+        pure $ T.concat (fstText : rest)
 
-    
+
 
 -- | First level of identation in FEATURES table file.
 --
